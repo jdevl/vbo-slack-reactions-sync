@@ -50,47 +50,22 @@ export default async function handler(req, res) {
     });
     console.log(`[fetch-messages] Ace OpenClaw messages: ${aceMessages.length}`);
 
-    // For each Ace message, check reactions via API to see if user has reacted
-    const messagesWithReactionCheck = await Promise.all(
-      aceMessages.map(async (msg) => {
-        try {
-          // Use reactions.list to get full reaction data
-          const reactionsRes = await fetch('https://slack.com/api/reactions.list', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              channel: channelId,
-              ts: msg.ts,
-            })
-          });
+    // For each Ace message, check if user has reacted based on message reactions
+    const messagesWithReactionCheck = aceMessages.map((msg) => {
+      // Check message's reactions directly from the message object
+      let hasUserReacted = false;
 
-          const reactionsData = await reactionsRes.json();
-          let hasUserReacted = false;
+      if (msg.reactions && Array.isArray(msg.reactions)) {
+        hasUserReacted = msg.reactions.some(r =>
+          r.users && Array.isArray(r.users) && r.users.includes(userId)
+        );
+      }
 
-          // Check if current user has any reaction on this message
-          if (reactionsData.ok && reactionsData.message && reactionsData.message.reactions) {
-            hasUserReacted = reactionsData.message.reactions.some(r =>
-              r.users && r.users.includes(userId)
-            );
-          }
-
-          return {
-            msg: msg,
-            hasUserReacted: hasUserReacted
-          };
-        } catch (e) {
-          console.error(`Error checking reactions for ${msg.ts}:`, e);
-          // If reaction check fails, include message anyway
-          return {
-            msg: msg,
-            hasUserReacted: false
-          };
-        }
-      })
-    );
+      return {
+        msg: msg,
+        hasUserReacted: hasUserReacted
+      };
+    });
 
     // Filter out messages where user has reacted
     const reacted = messagesWithReactionCheck.filter(item => item.hasUserReacted).length;
