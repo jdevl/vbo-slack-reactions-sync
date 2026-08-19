@@ -38,9 +38,17 @@ export default async function handler(req, res) {
     }
 
     const messages = historyData.messages || [];
+    console.log(`[fetch-messages] Total messages from history: ${messages.length}`);
 
     // Filter to only Ace OpenClaw (U0ADATUK7MM)
-    const aceMessages = messages.filter(m => m.user === 'U0ADATUK7MM');
+    const aceMessages = messages.filter(m => {
+      const isAce = m.user === 'U0ADATUK7MM';
+      if (!isAce && messages.length <= 10) {
+        console.log(`[fetch-messages] Non-Ace user: ${m.user}`);
+      }
+      return isAce;
+    });
+    console.log(`[fetch-messages] Ace OpenClaw messages: ${aceMessages.length}`);
 
     // For each Ace message, check reactions via API to see if user has reacted
     const messagesWithReactionCheck = await Promise.all(
@@ -85,6 +93,10 @@ export default async function handler(req, res) {
     );
 
     // Filter out messages where user has reacted
+    const reacted = messagesWithReactionCheck.filter(item => item.hasUserReacted).length;
+    const unreacted = messagesWithReactionCheck.filter(item => !item.hasUserReacted).length;
+    console.log(`[fetch-messages] Messages with user reaction: ${reacted}, without: ${unreacted}`);
+
     const unreactedMessages = messagesWithReactionCheck
       .filter(item => !item.hasUserReacted)
       .map(item => {
@@ -105,7 +117,14 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       messages: unreactedMessages,
-      total: unreactedMessages.length
+      total: unreactedMessages.length,
+      debug: {
+        totalFetched: messages.length,
+        aceMessages: aceMessages.length,
+        checkedReactions: messagesWithReactionCheck.length,
+        hasUserReacted: reacted,
+        unreacted: unreacted
+      }
     });
   } catch (error) {
     console.error('Error fetching messages:', error);
