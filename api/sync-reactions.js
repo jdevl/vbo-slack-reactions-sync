@@ -1,5 +1,4 @@
 export default async function handler(req, res) {
-  // Add CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -20,6 +19,7 @@ export default async function handler(req, res) {
 
   let successful = 0;
   let failed = 0;
+  let errors = [];
 
   for (const reaction of reactions) {
     try {
@@ -39,11 +39,13 @@ export default async function handler(req, res) {
         successful++;
       } else {
         failed++;
+        errors.push(`${reaction.name}: ${data.error}`);
       }
     } catch (error) {
       failed++;
+      errors.push(`${reaction.name}: ${error.message}`);
     }
   }
 
-  res.status(200).json({ successful, failed });
+  res.status(200).json({ successful, failed, errors });
 }
