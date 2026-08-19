@@ -27,27 +27,27 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         channel: channelId,
-        limit: 30,
-        inclusive: true
+        limit: 100,
       })
     });
 
     const historyData = await historyRes.json();
 
     if (!historyData.ok) {
-      return res.status(400).json({ error: historyData.error });
+      return res.status(400).json({ error: `Slack API error: ${historyData.error}` });
     }
 
     const messages = historyData.messages || [];
 
-    // Filter to Ace OpenClaw messages only
+    // Filter to only Ace OpenClaw (U0ADATUK7MM)
     const aceMessages = messages.filter(m => m.user === 'U0ADATUK7MM');
 
-    // For each message, check if userId has reacted
-    const messagesWithReactions = await Promise.all(
+    // For each Ace message, check reactions via API to see if user has reacted
+    const messagesWithReactionCheck = await Promise.all(
       aceMessages.map(async (msg) => {
         try {
-          const reactionsRes = await fetch('https://slack.com/api/reactions.get', {
+          // Use reactions.list to get full reaction data
+          const reactionsRes = await fetch('https://slack.com/api/reactions.list', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -55,63 +55,60 @@ export default async function handler(req, res) {
             },
             body: JSON.stringify({
               channel: channelId,
-              timestamp: msg.ts,
-              full: true
+              ts: msg.ts,
             })
           });
 
           const reactionsData = await reactionsRes.json();
-          const userReactions = reactionsData.message?.reactions || [];
+          let hasUserReacted = false;
+
+          // Check if current user has any reaction on this message
+          if (reactionsData.ok && reactionsData.message && reactionsData.message.reactions) {
+            hasUserReacted = reactionsData.message.reactions.some(r =>
+              r.users && r.users.includes(userId)
+            );
+          }
 
           return {
-            ts: msg.ts,
-            user: msg.user,
-            user_name: 'Ace OpenClaw',
-            text: msg.text,
-            reactions: userReactions.map(r => ({
-              name: r.name,
-              count: r.users.length,
-              hasUserReacted: r.users.includes(userId)
-            }))
+            msg: msg,
+            hasUserReacted: hasUserReacted
           };
         } catch (e) {
-          console.error(`Error getting reactions for ${msg.ts}:`, e);
+          console.error(`Error checking reactions for ${msg.ts}:`, e);
+          // If reaction check fails, include message anyway
           return {
-            ts: msg.ts,
-            user: msg.user,
-            user_name: 'Ace OpenClaw',
-            text: msg.text,
-            reactions: []
+            msg: msg,
+            hasUserReacted: false
           };
         }
       })
     );
 
-    // Filter out messages where user has already reacted
-    const unreactedMessages = messagesWithReactions.filter(msg => {
-      const userReacted = msg.reactions.some(r => r.hasUserReacted);
-      return !userReacted;
-    });
-
-    // Clean up reactions data for display (remove hasUserReacted flag)
-    const cleanMessages = unreactedMessages.map(msg => ({
-      ts: msg.ts,
-      user: msg.user,
-      user_name: msg.user_name,
-      text: msg.text,
-      reactions: msg.reactions.map(r => ({
-        name: r.name,
-        count: r.count
-      }))
-    }));
+    // Filter out messages where user has reacted
+    const unreactedMessages = messagesWithReactionCheck
+      .filter(item => !item.hasUserReacted)
+      .map(item => {
+        const msg = item.msg;
+        // Preserve original reaction data from message if available
+        return {
+          ts: msg.ts,
+          user: msg.user,
+          user_name: 'Ace OpenClaw',
+          text: msg.text || '',
+          reactions: (msg.reactions || []).map(r => ({
+            name: r.name,
+            count: r.count || 1
+          }))
+        };
+      });
 
     return res.status(200).json({
       success: true,
-      messages: cleanMessages,
-      total: cleanMessages.length
+      messages: unreactedMessages,
+      total: unreactedMessages.length
     });
   } catch (error) {
     console.error('Error fetching messages:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: `Server error: ${error.message}` });
   }
 }
